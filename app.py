@@ -36,8 +36,8 @@ st.markdown("""
         padding: 24px 32px; border-radius: 12px; margin-bottom: 24px;
         color: white;
     }
-    .main-header h1 { font-size: 28px; margin: 0; letter-spacing: -0.5px; }
-    .main-header p  { font-size: 13px; opacity: 0.7; margin: 4px 0 0; }
+    .main-header h1 { font-size: 28px; margin: 0; letter-spacing: -0.5px; color: white !important; }
+    .main-header p  { font-size: 13px; opacity: 0.9; margin: 4px 0 0; color: #e2e8f0 !important; }
     .metric-card {
         background: white; border: 1px solid #e2e8f0;
         border-radius: 10px; padding: 16px; text-align: center;
@@ -47,8 +47,45 @@ st.markdown("""
     .status-warning { color: #d97706; font-weight: 700; }
     .status-missing { color: #64748b; font-weight: 700; }
     div[data-testid="stFileUploadDropzone"] { border: 2px dashed #cbd5e1 !important; }
+
+    /* Make Streamlit containers transparent so video shows through */
+    .stApp {
+        background-color: transparent !important;
+    }
+    [data-testid="stAppViewContainer"] {
+        background-color: transparent !important;
+        background-image: none !important;
+    }
+    [data-testid="stHeader"] {
+        background-color: transparent !important;
+    }
+    .block-container {
+        z-index: 1;
+        position: relative;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+# ── Video Background Injection ────────────────────────────────────────────────
+st.markdown(f"""
+    <style>
+    .video-background {{
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 0;
+        opacity: 0.4; /* Adjust this for watermark intensity */
+        pointer-events: none;
+        object-fit: cover;
+    }}
+    </style>
+    <video id="bg-video" autoplay loop muted playsinline class="video-background">
+        <source src="app/static/bg_video.mp4" type="video/mp4">
+    </video>
+    <img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" onload="var v=document.getElementById('bg-video'); if(v){{v.muted=true; v.play();}}" style="display:none;">
+    """, unsafe_allow_html=True)
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -149,8 +186,8 @@ with tab_new_audit:
             # 3. Reconcile
             st.write("Running reconciliation engine...")
             report = run_full_reconciliation(bl_res["data"], sb_data_list)
-        st.session_state["report"] = report
-        save_report(report)
+            st.session_state["report"] = report
+            save_report(report)
             status.update(label="Audit Complete!", state="complete", expanded=False)
             st.toast("Audit Complete!", icon="✅")
 
