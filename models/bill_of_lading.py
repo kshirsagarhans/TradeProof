@@ -14,6 +14,10 @@ class BillOfLading(BaseModel):
     port_of_loading: str = ""
     port_of_discharge: str = ""
     port_of_final_destination: str = ""
+    port_of_loading_lat: Optional[float] = None
+    port_of_loading_lon: Optional[float] = None
+    port_of_discharge_lat: Optional[float] = None
+    port_of_discharge_lon: Optional[float] = None
     shipping_bill_references: List[dict] = Field(default_factory=list)
     # Each entry: {"sb_number": "...", "sb_date": "..."}
     total_packages: Optional[int] = None

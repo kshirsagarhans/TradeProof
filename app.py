@@ -6,6 +6,7 @@ import streamlit as st
 import json
 import pandas as pd
 import plotly.graph_objects as go
+import pydeck as pdk
 from datetime import datetime
 import os
 
@@ -193,6 +194,58 @@ with tab_new_audit:
                 st.download_button("📊 Download Excel Report", data=excel_report, file_name=f"TradeProof_Report_{report.bl_number}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
                 st.download_button("📄 Download HTML Report", data=html_report, file_name=f"TradeProof_Report_{report.bl_number}.html", mime="text/html", use_container_width=True)
                 st.download_button("📋 Download JSON Report", data=json_report, file_name=f"TradeProof_Report_{report.bl_number}.json", mime="application/json", use_container_width=True)
+
+            # Cargo Route Map
+            st.divider()
+            st.markdown("### 🗺️ Cargo Route")
+            if getattr(report, "port_of_loading_lat", None) and getattr(report, "port_of_discharge_lat", None):
+                route_data = pd.DataFrame({
+                    "start_lat": [report.port_of_loading_lat],
+                    "start_lon": [report.port_of_loading_lon],
+                    "end_lat": [report.port_of_discharge_lat],
+                    "end_lon": [report.port_of_discharge_lon]
+                })
+                
+                st.pydeck_chart(pdk.Deck(
+                    map_style="mapbox://styles/mapbox/dark-v10",
+                    initial_view_state=pdk.ViewState(
+                        latitude=(report.port_of_loading_lat + report.port_of_discharge_lat) / 2,
+                        longitude=(report.port_of_loading_lon + report.port_of_discharge_lon) / 2,
+                        zoom=2,
+                        pitch=45,
+                    ),
+                    layers=[
+                        pdk.Layer(
+                            "ArcLayer",
+                            data=route_data,
+                            get_source_position="[start_lon, start_lat]",
+                            get_target_position="[end_lon, end_lat]",
+                            get_source_color=[0, 200, 0, 255],
+                            get_target_color=[220, 38, 38, 255],
+                            auto_highlight=True,
+                            width_scale=0.0001,
+                            get_width="outbound",
+                            width_min_pixels=3,
+                            width_max_pixels=10,
+                        ),
+                        pdk.Layer(
+                            "ScatterplotLayer",
+                            data=pd.DataFrame({
+                                "lat": [report.port_of_loading_lat, report.port_of_discharge_lat],
+                                "lon": [report.port_of_loading_lon, report.port_of_discharge_lon],
+                                "name": ["Loading", "Discharge"],
+                                "color": [[0, 200, 0, 255], [220, 38, 38, 255]]
+                            }),
+                            get_position="[lon, lat]",
+                            get_fill_color="color",
+                            get_radius=150000,
+                            pickable=True
+                        )
+                    ],
+                    tooltip={"html": "<b>Port</b>"}
+                ))
+            else:
+                st.info("Route coordinates could not be extracted from the documents.")
 
         # Prepare DataFrame
         check_dicts = []

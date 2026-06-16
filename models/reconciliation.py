@@ -26,5 +26,9 @@ class ReconciliationReport(BaseModel):
     missing_count: int
     warning_count: int
     match_rate_pct: float
+    port_of_loading_lat: Optional[float] = None
+    port_of_loading_lon: Optional[float] = None
+    port_of_discharge_lat: Optional[float] = None
+    port_of_discharge_lon: Optional[float] = None
     checks: list[ReconciliationCheck]
     summary: str

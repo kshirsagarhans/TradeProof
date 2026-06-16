@@ -30,6 +30,10 @@ Required JSON schema:
   "port_of_loading": "string — port where goods are loaded",
   "port_of_discharge": "string — port where goods are discharged",
   "port_of_final_destination": "string — final destination port/place",
+  "port_of_loading_lat": "float or null — approximate latitude of the loading port",
+  "port_of_loading_lon": "float or null — approximate longitude of the loading port",
+  "port_of_discharge_lat": "float or null — approximate latitude of the discharge port",
+  "port_of_discharge_lon": "float or null — approximate longitude of the discharge port",
   "shipping_bill_references": [
     {"sb_number": "string", "sb_date": "string in DD/MM/YYYY format"}
   ],
@@ -53,6 +57,7 @@ Normalization rules:
 - For containers: extract ALL container/seal number pairs found anywhere in the document
 - For gross_weight: extract numeric value only, put unit in gross_weight_unit
 - If multiple SB references appear, list all of them in shipping_bill_references array
+- Estimate the approximate latitude and longitude coordinates as floats for the ports if the city/port name is successfully extracted.
 """
 
 SB_EXTRACTION_PROMPT = """

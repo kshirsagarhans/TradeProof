@@ -386,6 +386,10 @@ def run_full_reconciliation(bl_data: dict, sb_data_list: list[dict]) -> Reconcil
         missing_count=missing,
         warning_count=warnings,
         match_rate_pct=rate,
+        port_of_loading_lat=bl.port_of_loading_lat,
+        port_of_loading_lon=bl.port_of_loading_lon,
+        port_of_discharge_lat=bl.port_of_discharge_lat,
+        port_of_discharge_lon=bl.port_of_discharge_lon,
         checks=all_checks,
         summary=summary
     )
