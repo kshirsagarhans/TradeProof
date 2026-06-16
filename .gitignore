@@ -40,3 +40,5 @@ venv.bak/
 # IDEs
 .idea/
 .vscode/
+*.db
+tradeproof.db

@@ -16,6 +16,7 @@ from config import (
 from core.extractor import extract_bl_data, extract_sb_data
 from core.reconciler import run_full_reconciliation
 from core.reporter import generate_html_report, generate_json_report, generate_excel_report
+from core.database import init_db, save_report, get_all_reports, get_report_by_id
 
 # ── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -24,6 +25,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+init_db()  # Initialize database
 
 # ── Custom CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -99,133 +101,154 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ── File Uploads ──────────────────────────────────────────────────────────────
-st.markdown("#### Step 1: Master Bill of Lading")
-bl_file = st.file_uploader("Upload Master BL (PDF)", type=["pdf"], key="bl_file", label_visibility="collapsed")
+# ── Main Layout ───────────────────────────────────────────────────────────────
+tab_new_audit, tab_history = st.tabs(["🚀 New Audit", "🗄️ Past Audits"])
 
-st.markdown("#### Step 2: Supporting Shipping Bills")
-sb_files = st.file_uploader("Upload Shipping Bills (PDFs)", type=["pdf"], accept_multiple_files=True, key="sb_files", label_visibility="collapsed")
+with tab_new_audit:
+    # ── File Uploads ──────────────────────────────────────────────────────────────
+    st.markdown("#### Step 1: Master Bill of Lading")
+    bl_file = st.file_uploader("Upload Master BL (PDF)", type=["pdf"], key="bl_file", label_visibility="collapsed")
 
-st.markdown("#### Step 3: Execute Audit")
-run_btn = st.button("⚓ Run Vessel Clearance Audit", type="primary", use_container_width=True, disabled=not (bl_file and sb_files))
+    st.markdown("#### Step 2: Supporting Shipping Bills")
+    sb_files = st.file_uploader("Upload Shipping Bills (PDFs)", type=["pdf"], accept_multiple_files=True, key="sb_files", label_visibility="collapsed")
 
-# ── Processing & Results ──────────────────────────────────────────────────────
-if run_btn:
-    if not api_key_input:
-        st.error("Please enter a Gemini API Key in the sidebar.")
-        st.stop()
+    st.markdown("#### Step 3: Execute Audit")
+    run_btn = st.button("⚓ Run Vessel Clearance Audit", type="primary", use_container_width=True, disabled=not (bl_file and sb_files))
 
-    with st.status("Executing Customs Audit...", expanded=True) as status:
-        # 1. Extract BL
-        st.write("Extracting Bill of Lading...")
-        bl_bytes = bl_file.read()
-        bl_res = extract_bl_data(bl_bytes, api_key_input)
-        
-        if not bl_res["success"]:
-            status.update(label="Failed to extract BL", state="error", expanded=True)
-            st.error(f"Failed to extract BL: {bl_res.get('error')}")
+    # ── Processing & Results ──────────────────────────────────────────────────────
+    if run_btn:
+        if not api_key_input:
+            st.error("Please enter a Gemini API Key in the sidebar.")
             st.stop()
 
-        # 2. Extract SBs
-        st.write(f"Extracting {len(sb_files)} Shipping Bill(s)...")
-        sb_data_list = []
-        for sb_f in sb_files:
-            st.write(f"- Processing {sb_f.name}...")
-            sb_bytes = sb_f.read()
-            sb_res = extract_sb_data(sb_bytes, sb_f.name, api_key_input)
-            if not sb_res["success"]:
-                status.update(label=f"Failed to extract SB {sb_f.name}", state="error", expanded=True)
-                st.error(f"Failed to extract SB {sb_f.name}: {sb_res.get('error')}")
+        with st.status("Executing Customs Audit...", expanded=True) as status:
+            # 1. Extract BL
+            st.write("Extracting Bill of Lading...")
+            bl_bytes = bl_file.read()
+            bl_res = extract_bl_data(bl_bytes, api_key_input)
+
+            if not bl_res["success"]:
+                status.update(label="Failed to extract BL", state="error", expanded=True)
+                st.error(f"Failed to extract BL: {bl_res.get('error')}")
                 st.stop()
-            sb_data_list.append(sb_res["data"])
-        
-        # 3. Reconcile
-        st.write("Running reconciliation engine...")
-        report = run_full_reconciliation(bl_res["data"], sb_data_list)
+
+            # 2. Extract SBs
+            st.write(f"Extracting {len(sb_files)} Shipping Bill(s)...")
+            sb_data_list = []
+            for sb_f in sb_files:
+                st.write(f"- Processing {sb_f.name}...")
+                sb_bytes = sb_f.read()
+                sb_res = extract_sb_data(sb_bytes, sb_f.name, api_key_input)
+                if not sb_res["success"]:
+                    status.update(label=f"Failed to extract SB {sb_f.name}", state="error", expanded=True)
+                    st.error(f"Failed to extract SB {sb_f.name}: {sb_res.get('error')}")
+                    st.stop()
+                sb_data_list.append(sb_res["data"])
+
+            # 3. Reconcile
+            st.write("Running reconciliation engine...")
+            report = run_full_reconciliation(bl_res["data"], sb_data_list)
         st.session_state["report"] = report
-        status.update(label="Audit Complete!", state="complete", expanded=False)
-        st.toast("Audit Complete!", icon="✅")
+        save_report(report)
+            status.update(label="Audit Complete!", state="complete", expanded=False)
+            st.toast("Audit Complete!", icon="✅")
 
-if "report" in st.session_state:
-    report = st.session_state["report"]
-    
-    st.divider()
-    st.subheader(f"🚢 Cargo Audit Report — {report.bl_number}")
-    st.info(report.summary)
+    if "report" in st.session_state:
+        report = st.session_state["report"]
 
-    # Metrics
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Documentation Integrity", f"{report.match_rate_pct}%")
-    m2.metric("Total Checks", report.total_checks)
-    m3.metric("Cleared Checks ✅", report.match_count)
-    m4.metric("Customs Discrepancies ❌", report.mismatch_count)
-    m5.metric("Clearance Holds ⚠️", report.warning_count + report.missing_count)
+        st.divider()
+        st.subheader(f"🚢 Cargo Audit Report — {report.bl_number}")
+        st.info(report.summary)
 
-    st.divider()
-    
-    # Dashboard Tabs
-    tab_dash, tab_disc, tab_audit = st.tabs(["📊 Dashboard", "⚠️ Discrepancies", "📋 Full Audit Log"])
-    
-    with tab_dash:
-        r_col1, r_col2 = st.columns([1, 1])
-        with r_col1:
-            labels = ['Match', 'Mismatch', 'Missing', 'Warning']
-            values = [report.match_count, report.mismatch_count, report.missing_count, report.warning_count]
-            colors = [COLOR_MATCH, COLOR_MISMATCH, COLOR_MISSING, COLOR_WARNING]
-            
-            fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.5, marker_colors=colors)])
-            fig.update_layout(title_text="Check Distribution", showlegend=True, margin=dict(t=40, b=0, l=0, r=0))
-            st.plotly_chart(fig, use_container_width=True)
-            
-        with r_col2:
-            st.markdown("### Export Reports")
-            html_report = generate_html_report(report)
-            json_report = generate_json_report(report)
-            excel_report = generate_excel_report(report)
-            
-            st.download_button("📊 Download Excel Report", data=excel_report, file_name=f"TradeProof_Report_{report.bl_number}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-            st.download_button("📄 Download HTML Report", data=html_report, file_name=f"TradeProof_Report_{report.bl_number}.html", mime="text/html", use_container_width=True)
-            st.download_button("📋 Download JSON Report", data=json_report, file_name=f"TradeProof_Report_{report.bl_number}.json", mime="application/json", use_container_width=True)
+        # Metrics
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Documentation Integrity", f"{report.match_rate_pct}%")
+        m2.metric("Total Checks", report.total_checks)
+        m3.metric("Cleared Checks ✅", report.match_count)
+        m4.metric("Customs Discrepancies ❌", report.mismatch_count)
+        m5.metric("Clearance Holds ⚠️", report.warning_count + report.missing_count)
 
-    # Prepare DataFrame
-    check_dicts = []
-    for c in report.checks:
-        check_dicts.append({
-            "Category": c.category,
-            "Check": c.check_name,
-            "Status": c.status,
-            "Severity": c.severity,
-            "BL Value": c.bl_value or "-",
-            "SB Value": c.sb_value or "-",
-            "Details": c.details
-        })
-    df_checks = pd.DataFrame(check_dicts)
-    
-    def style_dataframe(df):
-        return st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Status": st.column_config.TextColumn("Status"),
-                "Severity": st.column_config.TextColumn("Severity"),
-                "BL Value": st.column_config.TextColumn("BL Value", width="medium"),
-                "SB Value": st.column_config.TextColumn("SB Value", width="medium"),
-                "Details": st.column_config.TextColumn("Details", width="large"),
-            }
-        )
+        st.divider()
 
-    with tab_disc:
-        st.markdown("### Actionable Discrepancies")
-        df_disc = df_checks[df_checks["Status"].isin(["MISMATCH", "WARNING", "MISSING"])]
-        if df_disc.empty:
-            st.success("No discrepancies found! All checks match perfectly.")
-        else:
-            style_dataframe(df_disc)
+        # Dashboard Tabs
+        tab_dash, tab_disc, tab_audit = st.tabs(["📊 Dashboard", "⚠️ Discrepancies", "📋 Full Audit Log"])
 
-    with tab_audit:
-        st.markdown("### All Checks")
-        style_dataframe(df_checks)
+        with tab_dash:
+            r_col1, r_col2 = st.columns([1, 1])
+            with r_col1:
+                labels = ['Match', 'Mismatch', 'Missing', 'Warning']
+                values = [report.match_count, report.mismatch_count, report.missing_count, report.warning_count]
+                colors = [COLOR_MATCH, COLOR_MISMATCH, COLOR_MISSING, COLOR_WARNING]
+
+                fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.5, marker_colors=colors)])
+                fig.update_layout(title_text="Check Distribution", showlegend=True, margin=dict(t=40, b=0, l=0, r=0))
+                st.plotly_chart(fig, use_container_width=True)
+
+            with r_col2:
+                st.markdown("### Export Reports")
+                html_report = generate_html_report(report)
+                json_report = generate_json_report(report)
+                excel_report = generate_excel_report(report)
+
+                st.download_button("📊 Download Excel Report", data=excel_report, file_name=f"TradeProof_Report_{report.bl_number}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                st.download_button("📄 Download HTML Report", data=html_report, file_name=f"TradeProof_Report_{report.bl_number}.html", mime="text/html", use_container_width=True)
+                st.download_button("📋 Download JSON Report", data=json_report, file_name=f"TradeProof_Report_{report.bl_number}.json", mime="application/json", use_container_width=True)
+
+        # Prepare DataFrame
+        check_dicts = []
+        for c in report.checks:
+            check_dicts.append({
+                "Category": c.category,
+                "Check": c.check_name,
+                "Status": c.status,
+                "Severity": c.severity,
+                "BL Value": c.bl_value or "-",
+                "SB Value": c.sb_value or "-",
+                "Details": c.details
+            })
+        df_checks = pd.DataFrame(check_dicts)
+
+        def style_dataframe(df):
+            return st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Status": st.column_config.TextColumn("Status"),
+                    "Severity": st.column_config.TextColumn("Severity"),
+                    "BL Value": st.column_config.TextColumn("BL Value", width="medium"),
+                    "SB Value": st.column_config.TextColumn("SB Value", width="medium"),
+                    "Details": st.column_config.TextColumn("Details", width="large"),
+                }
+            )
+
+        with tab_disc:
+            st.markdown("### Actionable Discrepancies")
+            df_disc = df_checks[df_checks["Status"].isin(["MISMATCH", "WARNING", "MISSING"])]
+            if df_disc.empty:
+                st.success("No discrepancies found! All checks match perfectly.")
+            else:
+                style_dataframe(df_disc)
+
+        with tab_audit:
+            st.markdown("### All Checks")
+            style_dataframe(df_checks)
+
+
+with tab_history:
+    st.markdown("### 🗄️ Past Vessel Clearance Audits")
+    past_reports = get_all_reports()
+    if not past_reports:
+        st.info("No past audits found. Run your first audit to see history here!")
+    else:
+        df_history = pd.DataFrame(past_reports)
+        st.dataframe(df_history, use_container_width=True)
+        st.divider()
+        st.markdown("**Load Past Audit**")
+        selected_id = st.selectbox("Select Report ID to load", [r["report_id"] for r in past_reports])
+        if st.button("Load Audit", type="primary"):
+            st.session_state["report"] = get_report_by_id(selected_id)
+            st.rerun()
 
 st.divider()
 st.markdown("<p style='text-align: center; color: gray; font-size: 12px;'>Made with grit by Hansraj</p>", unsafe_allow_html=True)
