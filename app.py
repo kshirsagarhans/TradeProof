@@ -15,7 +15,7 @@ from config import (
 )
 from core.extractor import extract_bl_data, extract_sb_data
 from core.reconciler import run_full_reconciliation
-from core.reporter import generate_html_report, generate_json_report
+from core.reporter import generate_html_report, generate_json_report, generate_excel_report
 
 # ── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -181,7 +181,9 @@ if "report" in st.session_state:
             st.markdown("### Export Reports")
             html_report = generate_html_report(report)
             json_report = generate_json_report(report)
+            excel_report = generate_excel_report(report)
             
+            st.download_button("📊 Download Excel Report", data=excel_report, file_name=f"TradeProof_Report_{report.bl_number}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
             st.download_button("📄 Download HTML Report", data=html_report, file_name=f"TradeProof_Report_{report.bl_number}.html", mime="text/html", use_container_width=True)
             st.download_button("📋 Download JSON Report", data=json_report, file_name=f"TradeProof_Report_{report.bl_number}.json", mime="application/json", use_container_width=True)
 

@@ -1,5 +1,7 @@
 """Generate HTML and JSON reconciliation reports."""
 import json
+import io
+import pandas as pd
 from jinja2 import Template
 from datetime import datetime
 from models.reconciliation import ReconciliationReport
@@ -130,3 +132,61 @@ def generate_html_report(report: ReconciliationReport) -> str:
 
 def generate_json_report(report: ReconciliationReport) -> str:
     return report.model_dump_json(indent=2)
+
+def generate_excel_report(report: ReconciliationReport) -> bytes:
+    """Generate a formatted Excel report from the reconciliation results."""
+    # Convert checks to a DataFrame
+    check_dicts = []
+    for c in report.checks:
+        check_dicts.append({
+            "Category": c.category,
+            "Check": c.check_name,
+            "Status": c.status,
+            "Severity": c.severity,
+            "BL Value": str(c.bl_value) if c.bl_value is not None else "-",
+            "SB Value": str(c.sb_value) if c.sb_value is not None else "-",
+            "Details": c.details
+        })
+    df = pd.DataFrame(check_dicts)
+    
+    # Write to BytesIO
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, sheet_name='Audit Report', index=False)
+        
+        # Get workbook and worksheet objects
+        workbook  = writer.book
+        worksheet = writer.sheets['Audit Report']
+        
+        # Define formats
+        header_format = workbook.add_format({
+            'bold': True,
+            'text_wrap': False,
+            'valign': 'top',
+            'fg_color': '#0B2447',
+            'font_color': 'white',
+            'border': 1
+        })
+        
+        match_format = workbook.add_format({'bg_color': '#dcfce7', 'font_color': '#166534'})
+        mismatch_format = workbook.add_format({'bg_color': '#fee2e2', 'font_color': '#991b1b'})
+        warning_format = workbook.add_format({'bg_color': '#fef3c7', 'font_color': '#92400e'})
+        missing_format = workbook.add_format({'bg_color': '#e2e8f0', 'font_color': '#475569'})
+        
+        # Write column headers with formatting
+        for col_num, value in enumerate(df.columns.values):
+            worksheet.write(0, col_num, value, header_format)
+            
+        # Set column widths
+        worksheet.set_column('A:B', 25)
+        worksheet.set_column('C:D', 15)
+        worksheet.set_column('E:F', 30)
+        worksheet.set_column('G:G', 45)
+        
+        # Apply conditional formatting to the "Status" column (Column C)
+        worksheet.conditional_format('C2:C1000', {'type': 'cell', 'criteria': '==', 'value': '"MATCH"', 'format': match_format})
+        worksheet.conditional_format('C2:C1000', {'type': 'cell', 'criteria': '==', 'value': '"MISMATCH"', 'format': mismatch_format})
+        worksheet.conditional_format('C2:C1000', {'type': 'cell', 'criteria': '==', 'value': '"WARNING"', 'format': warning_format})
+        worksheet.conditional_format('C2:C1000', {'type': 'cell', 'criteria': '==', 'value': '"MISSING"', 'format': missing_format})
+        
+    return output.getvalue()
