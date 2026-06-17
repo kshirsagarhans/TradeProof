@@ -32,9 +32,31 @@ init_db()  # Initialize database
 # ── Custom CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    /* Dark theme text */
-    .stApp, .stMarkdown, p, h1, h2, h3, h4, h5, h6, span {
+    /* Better text targeting for dark theme */
+    .stApp, .stMarkdown, p, h1, h2, h3, h4, h5, h6 {
         color: #f8fafc;
+    }
+    
+    /* Fix top-right 3-dots menu text (it has a white background) */
+    ul[data-testid="main-menu-list"] span, ul[data-testid="main-menu-list"] p {
+        color: #0f172a !important;
+    }
+
+    /* Style secondary buttons (like Clear Results, Browse Files) to match dark theme */
+    button[kind="secondary"] {
+        background-color: rgba(255, 255, 255, 0.1) !important;
+        color: #f8fafc !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    }
+    button[kind="secondary"]:hover {
+        background-color: rgba(255, 255, 255, 0.2) !important;
+        border: 1px solid #38bdf8 !important;
+        color: #38bdf8 !important;
+    }
+    
+    /* Fix file uploader small text */
+    div[data-testid="stFileUploadDropzone"] small {
+        color: #cbd5e1 !important;
     }
 
     /* Main Header Glass */
