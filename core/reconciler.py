@@ -332,9 +332,68 @@ def check_invoices(bl: BillOfLading, sbs: list[ShippingBill]) -> list[Reconcilia
     return results
 
 
+# ── CHECK 8: Physical Verification ──────────────────────────────────────────
+def check_physical_seals(bl: BillOfLading, sbs: list[ShippingBill], seal_data: dict) -> list[ReconciliationCheck]:
+    results = []
+    if not seal_data or "containers" not in seal_data or not seal_data["containers"]:
+        return results
+        
+    physical_containers = seal_data["containers"]
+    
+    bl_containers = {
+        normalize_string(c.container_number): normalize_string(c.seal_number)
+        for c in bl.containers if c.container_number
+    }
+    
+    sb_containers = {}
+    for sb in sbs:
+        for c in sb.containers:
+            if c.container_number:
+                sb_containers[normalize_string(c.container_number)] = normalize_string(c.seal_number)
+
+    for i, p_cont in enumerate(physical_containers, 1):
+        p_cnum = normalize_string(p_cont.get("container_number", ""))
+        p_seal = normalize_string(p_cont.get("seal_number", ""))
+        check_id = f"PHYS-{i:02d}"
+        
+        if not p_cnum or not p_seal:
+            continue
+            
+        bl_seal = bl_containers.get(p_cnum)
+        sb_seal = sb_containers.get(p_cnum)
+        
+        if not bl_seal and not sb_seal:
+            results.append(_check(check_id, f"Physical Container {p_cnum}", "PHYSICAL VERIFICATION",
+                STATUS_WARNING, "HIGH", None, None,
+                f"Physical container '{p_cnum}' (Seal: {p_seal}) was not found in any digital document."))
+            continue
+            
+        if bl_seal:
+            if bl_seal == p_seal:
+                results.append(_check(f"{check_id}-BL", f"Physical Seal vs BL ({p_cnum})", "PHYSICAL VERIFICATION",
+                    STATUS_MATCH, "HIGH", f"BL: {bl_seal}", f"Physical: {p_seal}",
+                    "Physical seal matches Bill of Lading."))
+            else:
+                results.append(_check(f"{check_id}-BL", f"Physical Seal vs BL ({p_cnum})", "PHYSICAL VERIFICATION",
+                    STATUS_MISMATCH, "HIGH", f"BL: {bl_seal}", f"Physical: {p_seal}",
+                    "TAMPER WARNING: Physical seal does NOT match Bill of Lading."))
+                    
+        if sb_seal:
+            if sb_seal == p_seal:
+                results.append(_check(f"{check_id}-SB", f"Physical Seal vs SB ({p_cnum})", "PHYSICAL VERIFICATION",
+                    STATUS_MATCH, "HIGH", f"SB: {sb_seal}", f"Physical: {p_seal}",
+                    "Physical seal matches Shipping Bill."))
+            else:
+                results.append(_check(f"{check_id}-SB", f"Physical Seal vs SB ({p_cnum})", "PHYSICAL VERIFICATION",
+                    STATUS_MISMATCH, "HIGH", f"SB: {sb_seal}", f"Physical: {p_seal}",
+                    "TAMPER WARNING: Physical seal does NOT match Shipping Bill."))
+
+    return results
+
+
 # ── MASTER RECONCILE FUNCTION ─────────────────────────────────────────────────
-def run_full_reconciliation(bl_data: dict, sb_data_list: list[dict]) -> ReconciliationReport:
-    """Run all 7 checks and return a full ReconciliationReport."""
+def run_full_reconciliation(bl_data: dict, sb_data_list: list[dict], seal_data: dict = None) -> ReconciliationReport:
+    """Run all checks including physical verification, and return a full ReconciliationReport."""
 
     from models.bill_of_lading import BillOfLading, ContainerInfo
     from models.shipping_bill import ShippingBill
@@ -360,36 +419,28 @@ def run_full_reconciliation(bl_data: dict, sb_data_list: list[dict]) -> Reconcil
     all_checks.extend(check_containers(bl, sbs))
     all_checks.extend(check_hs_classification(bl, sbs))
     all_checks.extend(check_invoices(bl, sbs))
+    
+    if seal_data:
+        all_checks.extend(check_physical_seals(bl, sbs, seal_data))
 
-    total = len(all_checks)
-    matches = sum(1 for c in all_checks if c.status == "MATCH")
-    mismatches = sum(1 for c in all_checks if c.status == "MISMATCH")
-    missing = sum(1 for c in all_checks if c.status == "MISSING")
-    warnings = sum(1 for c in all_checks if c.status == "WARNING")
-    rate = round((matches / total * 100), 1) if total > 0 else 0.0
-
-    if mismatches == 0 and missing == 0:
-        summary = f"✅ Clean reconciliation: {matches}/{total} checks passed with {warnings} warning(s)."
-    elif mismatches > 0:
-        summary = f"❌ {mismatches} mismatch(es) found across {total} checks. Immediate review required."
-    else:
-        summary = f"⚠️ {missing} missing field(s) detected. {matches} checks passed."
-
-    return ReconciliationReport(
+    report = ReconciliationReport(
         report_id=str(uuid.uuid4())[:8].upper(),
         generated_at=datetime.now().strftime("%d %b %Y, %H:%M:%S"),
         bl_number=bl.bl_number or "UNKNOWN",
         sb_count=len(sbs),
-        total_checks=total,
-        match_count=matches,
-        mismatch_count=mismatches,
-        missing_count=missing,
-        warning_count=warnings,
-        match_rate_pct=rate,
+        total_checks=0,
+        match_count=0,
+        mismatch_count=0,
+        missing_count=0,
+        warning_count=0,
+        match_rate_pct=0.0,
         port_of_loading_lat=bl.port_of_loading_lat,
         port_of_loading_lon=bl.port_of_loading_lon,
         port_of_discharge_lat=bl.port_of_discharge_lat,
         port_of_discharge_lon=bl.port_of_discharge_lon,
         checks=all_checks,
-        summary=summary
+        summary=""
     )
+    
+    report.update_metrics()
+    return report

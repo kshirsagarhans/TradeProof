@@ -10,9 +10,13 @@ APP_EMOJI = "⚓"
 
 # ── Gemini Settings ───────────────────────────────────────────────
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-DEFAULT_MODEL = "gemini-2.0-flash"
+DEFAULT_MODEL = "gemini-2.0-flash-exp"
 FALLBACK_MODEL = "gemini-1.5-pro"
 MAX_RETRIES = 2
+
+# ── Azure OpenAI Settings ─────────────────────────────────────────
+AZURE_DEFAULT_DEPLOYMENT = "gpt-4o"
+AZURE_DEFAULT_API_VERSION = "2024-02-15-preview"
 
 # ── Reconciliation Thresholds ─────────────────────────────────────
 FUZZY_MATCH_THRESHOLD = 0.85       # 85% string similarity for identifiers

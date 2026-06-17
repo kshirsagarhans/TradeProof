@@ -1,17 +1,13 @@
 """
-Gemini API extraction pipeline.
-Uses text + optional vision for scanned PDFs.
+AI API extraction pipeline.
+Supports both Google Gemini and Azure OpenAI via a unified router interface.
 """
 import json
 import re
 import google.generativeai as genai
-from config import GEMINI_API_KEY, DEFAULT_MODEL, FALLBACK_MODEL, MAX_RETRIES
+from openai import AzureOpenAI
+from config import MAX_RETRIES, DEFAULT_MODEL
 from utils.pdf_reader import extract_text_from_pdf, pdf_to_images_base64
-import streamlit as st
-
-# Configure Gemini
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
 
 BL_EXTRACTION_PROMPT = """
 You are an expert trade document parser specializing in Ocean Bills of Lading (BL).
@@ -30,10 +26,6 @@ Required JSON schema:
   "port_of_loading": "string — port where goods are loaded",
   "port_of_discharge": "string — port where goods are discharged",
   "port_of_final_destination": "string — final destination port/place",
-  "port_of_loading_lat": "float or null — approximate latitude of the loading port",
-  "port_of_loading_lon": "float or null — approximate longitude of the loading port",
-  "port_of_discharge_lat": "float or null — approximate latitude of the discharge port",
-  "port_of_discharge_lon": "float or null — approximate longitude of the discharge port",
   "shipping_bill_references": [
     {"sb_number": "string", "sb_date": "string in DD/MM/YYYY format"}
   ],
@@ -57,7 +49,6 @@ Normalization rules:
 - For containers: extract ALL container/seal number pairs found anywhere in the document
 - For gross_weight: extract numeric value only, put unit in gross_weight_unit
 - If multiple SB references appear, list all of them in shipping_bill_references array
-- Estimate the approximate latitude and longitude coordinates as floats for the ports if the city/port name is successfully extracted.
 """
 
 SB_EXTRACTION_PROMPT = """
@@ -101,98 +92,183 @@ Normalization rules:
 
 def _clean_json_response(text: str) -> str:
     """Strip markdown code fences and whitespace from Gemini response."""
+    if not text:
+        return "{}"
     text = text.strip()
     text = re.sub(r'^```json\s*', '', text)
     text = re.sub(r'^```\s*', '', text)
     text = re.sub(r'```\s*$', '', text)
     return text.strip()
 
-@st.cache_data(show_spinner=False)
-def extract_bl_data(pdf_bytes: bytes, api_key: str = None) -> dict:
-    """Extract Bill of Lading data using Gemini API."""
-    key = api_key or GEMINI_API_KEY
-    if key:
-        genai.configure(api_key=key)
-
-    raw_text = extract_text_from_pdf(pdf_bytes, "Bill of Lading")
-    is_low_text = "[LOW_TEXT_WARNING]" in raw_text
-
+def _extract_with_gemini(raw_text: str, images: list[str], prompt: str, is_low_text: bool, credentials: dict) -> tuple[bool, str, str]:
+    """Internal handler for Google Gemini extraction."""
+    api_key = credentials.get("api_key")
+    if not api_key:
+        return False, "Gemini API key is missing.", "{}"
+        
+    genai.configure(api_key=api_key)
     model = genai.GenerativeModel(DEFAULT_MODEL)
-
+    
     for attempt in range(MAX_RETRIES):
         try:
-            if is_low_text:
-                # Vision fallback for scanned PDFs
-                images = pdf_to_images_base64(pdf_bytes)
-                contents = [
-                    BL_EXTRACTION_PROMPT,
-                    "Here is the Bill of Lading document (image-based):"
-                ]
-                for img_b64 in images[:4]:  # Max 4 pages
-                    contents.append({
-                        "inline_data": {"mime_type": "image/png", "data": img_b64}
-                    })
-            else:
-                contents = f"{BL_EXTRACTION_PROMPT}\n\nDOCUMENT TEXT:\n{raw_text}"
-
-            response = model.generate_content(
-                contents,
-                generation_config={"temperature": 0.1, "max_output_tokens": 4096}
-            )
-            cleaned = _clean_json_response(response.text)
-            data = json.loads(cleaned)
-            data["raw_text"] = raw_text[:2000]  # Store first 2000 chars
-            return {"success": True, "data": data, "raw_text": raw_text}
-
-        except json.JSONDecodeError as e:
-            if attempt == MAX_RETRIES - 1:
-                return {"success": False, "error": f"JSON parse failed: {str(e)}", "raw_text": raw_text}
-        except Exception as e:
-            if attempt == MAX_RETRIES - 1:
-                return {"success": False, "error": str(e), "raw_text": raw_text}
-
-    return {"success": False, "error": "Max retries exceeded", "raw_text": raw_text}
-
-
-@st.cache_data(show_spinner=False)
-def extract_sb_data(pdf_bytes: bytes, filename: str = "SB", api_key: str = None) -> dict:
-    """Extract Shipping Bill data using Gemini API."""
-    key = api_key or GEMINI_API_KEY
-    if key:
-        genai.configure(api_key=key)
-
-    raw_text = extract_text_from_pdf(pdf_bytes, filename)
-    is_low_text = "[LOW_TEXT_WARNING]" in raw_text
-
-    model = genai.GenerativeModel(DEFAULT_MODEL)
-
-    for attempt in range(MAX_RETRIES):
-        try:
-            if is_low_text:
-                images = pdf_to_images_base64(pdf_bytes)
-                contents = [SB_EXTRACTION_PROMPT]
+            if is_low_text and images:
+                contents = [prompt, "Here is the document (image-based):"]
                 for img_b64 in images[:4]:
                     contents.append({
                         "inline_data": {"mime_type": "image/png", "data": img_b64}
                     })
             else:
-                contents = f"{SB_EXTRACTION_PROMPT}\n\nDOCUMENT TEXT:\n{raw_text}"
+                contents = f"{prompt}\n\nDOCUMENT TEXT:\n{raw_text}"
 
             response = model.generate_content(
                 contents,
                 generation_config={"temperature": 0.1, "max_output_tokens": 4096}
             )
             cleaned = _clean_json_response(response.text)
-            data = json.loads(cleaned)
-            data["raw_text"] = raw_text[:2000]
-            data["source_filename"] = filename
-            return {"success": True, "data": data, "raw_text": raw_text}
-
-        except json.JSONDecodeError as e:
-            if attempt == MAX_RETRIES - 1:
-                return {"success": False, "error": f"JSON parse failed: {str(e)}", "raw_text": raw_text, "source_filename": filename}
+            return True, "", cleaned
+            
         except Exception as e:
             if attempt == MAX_RETRIES - 1:
-                return {"success": False, "error": str(e), "raw_text": raw_text, "source_filename": filename}
+                return False, f"Gemini Error: {str(e)}", "{}"
 
-    return {"success": False, "error": "Max retries exceeded"}
+    return False, "Max retries exceeded", "{}"
+
+
+def _extract_with_azure(raw_text: str, images: list[str], prompt: str, is_low_text: bool, credentials: dict) -> tuple[bool, str, str]:
+    """Internal handler for Azure OpenAI extraction."""
+    api_key = credentials.get("api_key")
+    endpoint = credentials.get("endpoint")
+    api_version = credentials.get("api_version")
+    deployment_name = credentials.get("deployment_name")
+    
+    if not all([api_key, endpoint, api_version, deployment_name]):
+        return False, "Missing Azure OpenAI credentials.", "{}"
+
+    client = AzureOpenAI(
+        api_key=api_key,
+        azure_endpoint=endpoint,
+        api_version=api_version
+    )
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            messages = [{"role": "system", "content": prompt}]
+            
+            if is_low_text and images:
+                user_content = [{"type": "text", "text": "Here is the document. Extract the required data."}]
+                for img_b64 in images[:4]:
+                    user_content.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{img_b64}"}
+                    })
+                messages.append({"role": "user", "content": user_content})
+            else:
+                messages.append({"role": "user", "content": f"DOCUMENT TEXT:\n{raw_text}"})
+
+            response = client.chat.completions.create(
+                model=deployment_name,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=4096,
+                response_format={"type": "json_object"}
+            )
+            cleaned = _clean_json_response(response.choices[0].message.content)
+            return True, "", cleaned
+            
+        except Exception as e:
+            if attempt == MAX_RETRIES - 1:
+                return False, f"Azure OpenAI Error: {str(e)}", "{}"
+
+    return False, "Max retries exceeded", "{}"
+
+
+def extract_bl_data(pdf_bytes: bytes, ai_config: dict) -> dict:
+    """Router function to extract Bill of Lading data."""
+    raw_text = extract_text_from_pdf(pdf_bytes, "Bill of Lading")
+    is_low_text = "[LOW_TEXT_WARNING]" in raw_text
+    images = pdf_to_images_base64(pdf_bytes) if is_low_text else []
+
+    provider = ai_config.get("provider", "gemini").lower()
+    credentials = ai_config.get("credentials", {})
+    
+    if provider == "azure":
+        success, error, json_str = _extract_with_azure(raw_text, images, BL_EXTRACTION_PROMPT, is_low_text, credentials)
+    else:
+        success, error, json_str = _extract_with_gemini(raw_text, images, BL_EXTRACTION_PROMPT, is_low_text, credentials)
+
+    if not success:
+        return {"success": False, "error": error, "raw_text": raw_text}
+
+    try:
+        data = json.loads(json_str)
+        data["raw_text"] = raw_text[:2000]
+        return {"success": True, "data": data, "raw_text": raw_text}
+    except json.JSONDecodeError as e:
+        return {"success": False, "error": f"JSON parse failed: {str(e)}", "raw_text": raw_text}
+
+
+def extract_sb_data(pdf_bytes: bytes, filename: str, ai_config: dict) -> dict:
+    """Router function to extract Shipping Bill data."""
+    raw_text = extract_text_from_pdf(pdf_bytes, filename)
+    is_low_text = "[LOW_TEXT_WARNING]" in raw_text
+    images = pdf_to_images_base64(pdf_bytes) if is_low_text else []
+
+    provider = ai_config.get("provider", "gemini").lower()
+    credentials = ai_config.get("credentials", {})
+    
+    if provider == "azure":
+        success, error, json_str = _extract_with_azure(raw_text, images, SB_EXTRACTION_PROMPT, is_low_text, credentials)
+    else:
+        success, error, json_str = _extract_with_gemini(raw_text, images, SB_EXTRACTION_PROMPT, is_low_text, credentials)
+
+    if not success:
+        return {"success": False, "error": error, "raw_text": raw_text, "source_filename": filename}
+
+    try:
+        data = json.loads(json_str)
+        data["raw_text"] = raw_text[:2000]
+        data["source_filename"] = filename
+        return {"success": True, "data": data, "raw_text": raw_text}
+    except json.JSONDecodeError as e:
+        return {"success": False, "error": f"JSON parse failed: {str(e)}", "raw_text": raw_text, "source_filename": filename}
+
+SEAL_EXTRACTION_PROMPT = """
+You are a shipping container verification expert.
+Analyze the provided photos of physical container seals and doors.
+Extract any container numbers and seal numbers clearly visible.
+
+Return ONLY a valid JSON object. No markdown formatting, no code blocks.
+
+Required JSON schema:
+{
+  "containers": [
+    {"container_number": "string or null", "seal_number": "string or null"}
+  ]
+}
+"""
+
+def extract_seal_data(image_bytes_list: list[bytes], ai_config: dict) -> dict:
+    """Router function to extract seal data from physical images."""
+    import base64
+    images = [base64.b64encode(img).decode('utf-8') for img in image_bytes_list]
+    
+    provider = ai_config.get("provider", "gemini").lower()
+    credentials = ai_config.get("credentials", {})
+    
+    # We must treat this as "low text" because it's purely image-based
+    is_low_text = True 
+    
+    if provider == "azure":
+        success, error, json_str = _extract_with_azure("", images, SEAL_EXTRACTION_PROMPT, is_low_text, credentials)
+    else:
+        success, error, json_str = _extract_with_gemini("", images, SEAL_EXTRACTION_PROMPT, is_low_text, credentials)
+
+    if not success:
+        return {"success": False, "error": error}
+
+    try:
+        data = json.loads(json_str)
+        return {"success": True, "data": data}
+    except json.JSONDecodeError as e:
+        return {"success": False, "error": f"JSON parse failed: {str(e)}"}
+

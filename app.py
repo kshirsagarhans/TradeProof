@@ -12,9 +12,10 @@ import os
 
 from config import (
     APP_NAME, APP_VERSION, APP_TAGLINE, APP_EMOJI,
-    DEFAULT_MODEL, COLOR_MATCH, COLOR_MISMATCH, COLOR_WARNING, COLOR_MISSING
+    DEFAULT_MODEL, COLOR_MATCH, COLOR_MISMATCH, COLOR_WARNING, COLOR_MISSING,
+    AZURE_DEFAULT_DEPLOYMENT, AZURE_DEFAULT_API_VERSION
 )
-from core.extractor import extract_bl_data, extract_sb_data
+from core.extractor import extract_bl_data, extract_sb_data, extract_seal_data
 from core.reconciler import run_full_reconciliation
 from core.reporter import generate_html_report, generate_json_report, generate_excel_report
 from core.database import init_db, save_report, get_all_reports, get_report_by_id
@@ -31,37 +32,93 @@ init_db()  # Initialize database
 # ── Custom CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
+    /* Dark theme text */
+    .stApp, .stMarkdown, p, h1, h2, h3, h4, h5, h6, span {
+        color: #f8fafc;
+    }
+
+    /* Main Header Glass */
     .main-header {
-        background: linear-gradient(135deg, #06142e 0%, #1b3358 100%), repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.03) 10px, rgba(255,255,255,0.03) 20px);
-        padding: 24px 32px; border-radius: 12px; margin-bottom: 24px;
-        color: white;
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        padding: 24px 32px; 
+        border-radius: 16px; 
+        margin-bottom: 24px;
+        border: 1px solid rgba(255,255,255,0.1);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
     }
-    .main-header h1 { font-size: 28px; margin: 0; letter-spacing: -0.5px; color: white !important; }
-    .main-header p  { font-size: 13px; opacity: 0.9; margin: 4px 0 0; color: #e2e8f0 !important; }
-    .metric-card {
-        background: white; border: 1px solid #e2e8f0;
-        border-radius: 10px; padding: 16px; text-align: center;
+    .main-header h1 { font-size: 32px; margin: 0; font-weight: 800; background: -webkit-linear-gradient(45deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .main-header p  { font-size: 14px; opacity: 0.9; margin: 4px 0 0; color: #cbd5e1; }
+    
+    /* Glass Panels */
+    .glass-panel {
+        background: rgba(15, 23, 42, 0.5);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 16px;
+        padding: 24px;
+        margin-bottom: 24px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     }
-    .status-match   { color: #16a34a; font-weight: 700; }
-    .status-mismatch{ color: #dc2626; font-weight: 700; }
-    .status-warning { color: #d97706; font-weight: 700; }
-    .status-missing { color: #64748b; font-weight: 700; }
-    div[data-testid="stFileUploadDropzone"] { border: 2px dashed #cbd5e1 !important; }
+
+    /* Metric Cards */
+    .glass-metric {
+        background: rgba(30, 41, 59, 0.6);
+        backdrop-filter: blur(8px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 20px;
+        text-align: center;
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    .glass-metric:hover {
+        transform: translateY(-5px) scale(1.02);
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4), 0 0 20px rgba(56, 189, 248, 0.15);
+        border: 1px solid rgba(56, 189, 248, 0.4);
+    }
+    .metric-value { font-size: 32px; font-weight: 800; margin: 0; background: -webkit-linear-gradient(45deg, #f8fafc, #cbd5e1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .metric-label { font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
 
     /* Make Streamlit containers transparent so video shows through */
-    .stApp {
-        background-color: transparent !important;
-    }
-    [data-testid="stAppViewContainer"] {
+    .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
         background-color: transparent !important;
         background-image: none !important;
     }
-    [data-testid="stHeader"] {
-        background-color: transparent !important;
+    
+    /* Sidebar Glassmorphism */
+    [data-testid="stSidebar"] {
+        background: rgba(15, 23, 42, 0.7) !important;
+        backdrop-filter: blur(20px) !important;
+        -webkit-backdrop-filter: blur(20px) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
     }
+
+    /* Override Uploader Dropzones */
+    div[data-testid="stFileUploadDropzone"] {
+        background: rgba(30, 41, 59, 0.5) !important;
+        border: 2px dashed rgba(255, 255, 255, 0.2) !important;
+        border-radius: 16px !important;
+        transition: all 0.3s ease;
+    }
+    div[data-testid="stFileUploadDropzone"]:hover {
+        background: rgba(30, 41, 59, 0.8) !important;
+        border-color: #38bdf8 !important;
+    }
+
+    /* Expander Glass */
+    div[data-testid="stExpander"] {
+        background: rgba(15, 23, 42, 0.6) !important;
+        backdrop-filter: blur(12px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 12px !important;
+    }
+
     .block-container {
         z-index: 1;
         position: relative;
+        padding-top: 3rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -94,17 +151,44 @@ with st.sidebar:
     st.divider()
 
     st.subheader("⚙️ Configuration")
-    api_key_input = st.text_input(
-        "Gemini API Key",
-        type="password",
-        value=os.getenv("GEMINI_API_KEY", ""),
-        help="Enter your Google Gemini API key. Get one at https://aistudio.google.com"
-    )
-    model_choice = st.selectbox(
-        "Gemini Model",
-        ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
-        index=0
-    )
+    provider_choice = st.selectbox("AI Provider", ["Google Gemini", "Azure OpenAI"])
+    
+    ai_config = {"provider": "gemini", "credentials": {}}
+    
+    if provider_choice == "Google Gemini":
+        ai_config["provider"] = "gemini"
+        api_key_input = st.text_input(
+            "Gemini API Key",
+            type="password",
+            value=os.getenv("GEMINI_API_KEY", ""),
+            help="Enter your Google Gemini API key. Get one at https://aistudio.google.com"
+        )
+        ai_config["credentials"]["api_key"] = api_key_input
+        
+    elif provider_choice == "Azure OpenAI":
+        ai_config["provider"] = "azure"
+        azure_endpoint = st.text_input(
+            "Azure Endpoint", 
+            value=os.getenv("AZURE_OPENAI_ENDPOINT", ""),
+            help="e.g. https://your-resource-name.openai.azure.com/"
+        )
+        azure_api_key = st.text_input(
+            "Azure API Key",
+            type="password",
+            value=os.getenv("AZURE_OPENAI_API_KEY", "")
+        )
+        azure_deployment = st.text_input(
+            "Deployment Name",
+            value=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", AZURE_DEFAULT_DEPLOYMENT)
+        )
+        azure_api_version = st.text_input(
+            "API Version",
+            value=os.getenv("AZURE_OPENAI_API_VERSION", AZURE_DEFAULT_API_VERSION)
+        )
+        ai_config["credentials"]["endpoint"] = azure_endpoint
+        ai_config["credentials"]["api_key"] = azure_api_key
+        ai_config["credentials"]["deployment_name"] = azure_deployment
+        ai_config["credentials"]["api_version"] = azure_api_version
     st.divider()
     if st.button("🔄 Clear Results", use_container_width=True):
         if "report" in st.session_state:
@@ -144,26 +228,40 @@ tab_new_audit, tab_history = st.tabs(["🚀 New Audit", "🗄️ Past Audits"])
 
 with tab_new_audit:
     # ── File Uploads ──────────────────────────────────────────────────────────────
-    st.markdown("#### Step 1: Master Bill of Lading")
-    bl_file = st.file_uploader("Upload Master BL (PDF)", type=["pdf"], key="bl_file", label_visibility="collapsed")
+    st.markdown("<div class='glass-panel'>", unsafe_allow_html=True)
+    st.markdown("### 📥 Document Upload Pipeline")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("#### 1. Master BL")
+        bl_file = st.file_uploader("Upload Master BL (PDF)", type=["pdf"], key="bl_file", label_visibility="collapsed")
+    with col2:
+        st.markdown("#### 2. Shipping Bills")
+        sb_files = st.file_uploader("Upload Shipping Bills (PDFs)", type=["pdf"], accept_multiple_files=True, key="sb_files", label_visibility="collapsed")
+    with col3:
+        st.markdown("#### 3. Physical Seals")
+        seal_photos = st.file_uploader("Upload Container Seal Photos (JPG/PNG)", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="seal_photos", label_visibility="collapsed")
+    
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("#### Step 2: Supporting Shipping Bills")
-    sb_files = st.file_uploader("Upload Shipping Bills (PDFs)", type=["pdf"], accept_multiple_files=True, key="sb_files", label_visibility="collapsed")
-
-    st.markdown("#### Step 3: Execute Audit")
-    run_btn = st.button("⚓ Run Vessel Clearance Audit", type="primary", use_container_width=True, disabled=not (bl_file and sb_files))
+    # ── Floating Action Button ───────────────────────────────────────────────────
+    run_btn = st.button("🚀 EXECUTE VESSEL CLEARANCE AUDIT", type="primary", use_container_width=True, disabled=not (bl_file and sb_files))
 
     # ── Processing & Results ──────────────────────────────────────────────────────
     if run_btn:
-        if not api_key_input:
-            st.error("Please enter a Gemini API Key in the sidebar.")
+        if not ai_config["credentials"].get("api_key"):
+            st.error(f"Please enter an API Key for {provider_choice} in the sidebar.")
+            st.stop()
+            
+        if provider_choice == "Azure OpenAI" and not ai_config["credentials"].get("endpoint"):
+            st.error("Please enter your Azure Endpoint in the sidebar.")
             st.stop()
 
         with st.status("Executing Customs Audit...", expanded=True) as status:
             # 1. Extract BL
             st.write("Extracting Bill of Lading...")
             bl_bytes = bl_file.read()
-            bl_res = extract_bl_data(bl_bytes, api_key_input)
+            bl_res = extract_bl_data(bl_bytes, ai_config)
 
             if not bl_res["success"]:
                 status.update(label="Failed to extract BL", state="error", expanded=True)
@@ -176,16 +274,27 @@ with tab_new_audit:
             for sb_f in sb_files:
                 st.write(f"- Processing {sb_f.name}...")
                 sb_bytes = sb_f.read()
-                sb_res = extract_sb_data(sb_bytes, sb_f.name, api_key_input)
+                sb_res = extract_sb_data(sb_bytes, sb_f.name, ai_config)
                 if not sb_res["success"]:
                     status.update(label=f"Failed to extract SB {sb_f.name}", state="error", expanded=True)
                     st.error(f"Failed to extract SB {sb_f.name}: {sb_res.get('error')}")
                     st.stop()
                 sb_data_list.append(sb_res["data"])
 
-            # 3. Reconcile
+            # 3. Extract Physical Seals
+            seal_data = None
+            if seal_photos:
+                st.write(f"Extracting Physical Verification data from {len(seal_photos)} photo(s)...")
+                seal_bytes_list = [p.read() for p in seal_photos]
+                seal_res = extract_seal_data(seal_bytes_list, ai_config)
+                if not seal_res["success"]:
+                    st.warning(f"Failed to extract physical seals: {seal_res.get('error')}")
+                else:
+                    seal_data = seal_res["data"]
+
+            # 4. Reconcile
             st.write("Running reconciliation engine...")
-            report = run_full_reconciliation(bl_res["data"], sb_data_list)
+            report = run_full_reconciliation(bl_res["data"], sb_data_list, seal_data)
             st.session_state["report"] = report
             save_report(report)
             status.update(label="Audit Complete!", state="complete", expanded=False)
@@ -198,13 +307,31 @@ with tab_new_audit:
         st.subheader(f"🚢 Cargo Audit Report — {report.bl_number}")
         st.info(report.summary)
 
-        # Metrics
-        m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("Documentation Integrity", f"{report.match_rate_pct}%")
-        m2.metric("Total Checks", report.total_checks)
-        m3.metric("Cleared Checks ✅", report.match_count)
-        m4.metric("Customs Discrepancies ❌", report.mismatch_count)
-        m5.metric("Clearance Holds ⚠️", report.warning_count + report.missing_count)
+        # Dashboard Top Metrics (Glassmorphism)
+        st.markdown(f"""
+        <div style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap;">
+            <div class="glass-metric" style="flex: 1; min-width: 150px;">
+                <p class="metric-label">Integrity</p>
+                <p class="metric-value">{report.match_rate_pct}%</p>
+            </div>
+            <div class="glass-metric" style="flex: 1; min-width: 150px;">
+                <p class="metric-label">Total Checks</p>
+                <p class="metric-value">{report.total_checks}</p>
+            </div>
+            <div class="glass-metric" style="flex: 1; min-width: 150px;">
+                <p class="metric-label">Cleared ✅</p>
+                <p class="metric-value" style="background: -webkit-linear-gradient(45deg, #4ade80, #22c55e); -webkit-background-clip: text;">{report.match_count}</p>
+            </div>
+            <div class="glass-metric" style="flex: 1; min-width: 150px;">
+                <p class="metric-label">Discrepancies ❌</p>
+                <p class="metric-value" style="background: -webkit-linear-gradient(45deg, #f87171, #dc2626); -webkit-background-clip: text;">{report.mismatch_count}</p>
+            </div>
+            <div class="glass-metric" style="flex: 1; min-width: 150px;">
+                <p class="metric-label">Holds ⚠️</p>
+                <p class="metric-value" style="background: -webkit-linear-gradient(45deg, #fbbf24, #d97706); -webkit-background-clip: text;">{report.warning_count + report.missing_count}</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
         st.divider()
 
@@ -284,23 +411,64 @@ with tab_new_audit:
             else:
                 st.info("Route coordinates could not be extracted from the documents.")
 
-        # Prepare DataFrame
-        check_dicts = []
-        for c in report.checks:
-            check_dicts.append({
-                "Category": c.category,
-                "Check": c.check_name,
-                "Status": c.status,
-                "Severity": c.severity,
-                "BL Value": c.bl_value or "-",
-                "SB Value": c.sb_value or "-",
-                "Details": c.details
-            })
-        df_checks = pd.DataFrame(check_dicts)
+        with tab_disc:
+            st.markdown("### Actionable Discrepancies")
+            
+            # Show checks that are mismatch/warning AND not already overridden
+            discrepancies = [c for c in report.checks if c.status in ("MISMATCH", "WARNING", "MISSING") and not getattr(c, "is_overridden", False)]
+            
+            if not discrepancies:
+                st.success("No unacknowledged discrepancies found! All checks match perfectly or have been overridden.")
+            else:
+                for c in discrepancies:
+                    icon = "⚠️" if c.status == "WARNING" else "❌"
+                    with st.expander(f"{icon} {c.check_name} ({c.category})", expanded=False):
+                        col_d1, col_d2 = st.columns([2, 1])
+                        with col_d1:
+                            st.markdown(f"**Details:** {c.details}")
+                            st.markdown(f"**BL Value:** `{c.bl_value}`")
+                            st.markdown(f"**SB Value:** `{c.sb_value}`")
+                        with col_d2:
+                            st.markdown("**Human Override**")
+                            txt_key = f"override_txt_{c.check_id}"
+                            override_reason = st.text_input("Override Reason:", key=txt_key, placeholder="e.g. Known typo...")
+                            
+                            if st.button("Acknowledge & Override", key=f"btn_ovr_{c.check_id}", type="primary"):
+                                if not override_reason:
+                                    st.error("Please provide a reason to override.")
+                                else:
+                                    # Modify check inline
+                                    c.is_overridden = True
+                                    c.override_reason = override_reason
+                                    # Update metrics & save
+                                    report.update_metrics()
+                                    save_report(report)
+                                    st.success("Override applied!")
+                                    st.rerun()
 
-        def style_dataframe(df):
-            return st.dataframe(
-                df,
+        with tab_audit:
+            st.markdown("### All Checks")
+            
+            check_dicts = []
+            for c in report.checks:
+                status_display = c.status
+                if getattr(c, "is_overridden", False):
+                    status_display = f"OVERRIDDEN ({c.status})"
+                    
+                check_dicts.append({
+                    "Category": c.category,
+                    "Check": c.check_name,
+                    "Status": status_display,
+                    "Severity": c.severity,
+                    "BL Value": c.bl_value or "-",
+                    "SB Value": c.sb_value or "-",
+                    "Details": c.details,
+                    "Override Reason": getattr(c, "override_reason", "") or "-"
+                })
+            df_checks = pd.DataFrame(check_dicts)
+            
+            st.dataframe(
+                df_checks,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
@@ -309,20 +477,9 @@ with tab_new_audit:
                     "BL Value": st.column_config.TextColumn("BL Value", width="medium"),
                     "SB Value": st.column_config.TextColumn("SB Value", width="medium"),
                     "Details": st.column_config.TextColumn("Details", width="large"),
+                    "Override Reason": st.column_config.TextColumn("Override Reason"),
                 }
             )
-
-        with tab_disc:
-            st.markdown("### Actionable Discrepancies")
-            df_disc = df_checks[df_checks["Status"].isin(["MISMATCH", "WARNING", "MISSING"])]
-            if df_disc.empty:
-                st.success("No discrepancies found! All checks match perfectly.")
-            else:
-                style_dataframe(df_disc)
-
-        with tab_audit:
-            st.markdown("### All Checks")
-            style_dataframe(df_checks)
 
 
 with tab_history:
