@@ -184,11 +184,37 @@ def _extract_with_azure(raw_text: str, images: list[str], prompt: str, is_low_te
 
 def extract_bl_data(pdf_bytes: bytes, ai_config: dict) -> dict:
     """Router function to extract Bill of Lading data."""
+    provider = ai_config.get("provider", "gemini").lower()
+    
+    if provider == "mock":
+        import time
+        time.sleep(1) # Simulate API latency
+        mock_data = {
+            "bl_number": "MOCK-BL-12345",
+            "exporter_name": "ACME GLOBAL EXPORTS",
+            "exporter_address": "123 INDUSTRIAL WAY, FAKEVILLE",
+            "consignee_name": "GLOBEX IMPORT INC",
+            "consignee_address": "456 IMPORT ROAD, MOCK CITY",
+            "port_of_loading": "SHANGHAI",
+            "port_of_discharge": "LOS ANGELES",
+            "port_of_final_destination": "LOS ANGELES",
+            "shipping_bill_references": [{"sb_number": "SB-999", "sb_date": "01/01/2026"}],
+            "total_packages": 100,
+            "gross_weight": 5000,
+            "gross_weight_unit": "KG",
+            "containers": [{"container_number": "CONT1234567", "seal_number": "SEAL888"}],
+            "hs_code": "8471.30",
+            "hs_description": "LAPTOP COMPUTERS",
+            "invoice_number": "INV-2026-001",
+            "invoice_amount": 50000,
+            "invoice_currency": "USD"
+        }
+        return {"success": True, "data": mock_data, "raw_text": "MOCK PDF CONTENT - BYPASSED API"}
+
     raw_text = extract_text_from_pdf(pdf_bytes, "Bill of Lading")
     is_low_text = "[LOW_TEXT_WARNING]" in raw_text
     images = pdf_to_images_base64(pdf_bytes) if is_low_text else []
 
-    provider = ai_config.get("provider", "gemini").lower()
     credentials = ai_config.get("credentials", {})
     
     if provider == "azure":
@@ -209,11 +235,37 @@ def extract_bl_data(pdf_bytes: bytes, ai_config: dict) -> dict:
 
 def extract_sb_data(pdf_bytes: bytes, filename: str, ai_config: dict) -> dict:
     """Router function to extract Shipping Bill data."""
+    provider = ai_config.get("provider", "gemini").lower()
+    
+    if provider == "mock":
+        import time
+        time.sleep(1) # Simulate API latency
+        mock_data = {
+            "sb_number": "SB-999",
+            "sb_date": "01/01/2026",
+            "exporter_name": "ACME GLOBAL EXPORTS",
+            "exporter_address": "123 INDUSTRIAL WAY, FAKEVILLE",
+            "consignee_name": "GLOBEX IMPORT INC",
+            "consignee_address": "456 IMPORT ROAD, MOCK CITY",
+            "port_of_loading": "SHANGHAI",
+            "port_of_discharge": "LOS ANGELES",
+            "port_of_final_destination": "LOS ANGELES",
+            "pkg_total": 100,
+            "gross_weight_total": 5000,
+            "gross_weight_unit": "KG",
+            "containers": [{"container_number": "CONT1234567", "seal_number": "SEAL888"}],
+            "hs_code": "8471.30",
+            "hs_description": "LAPTOP COMPUTERS",
+            "invoice_number": "INV-2026-001",
+            "invoice_amount": 50000,
+            "invoice_currency": "USD"
+        }
+        return {"success": True, "data": mock_data, "raw_text": "MOCK PDF CONTENT - BYPASSED API", "source_filename": filename}
+
     raw_text = extract_text_from_pdf(pdf_bytes, filename)
     is_low_text = "[LOW_TEXT_WARNING]" in raw_text
     images = pdf_to_images_base64(pdf_bytes) if is_low_text else []
 
-    provider = ai_config.get("provider", "gemini").lower()
     credentials = ai_config.get("credentials", {})
     
     if provider == "azure":
@@ -249,10 +301,19 @@ Required JSON schema:
 
 def extract_seal_data(image_bytes_list: list[bytes], ai_config: dict) -> dict:
     """Router function to extract seal data from physical images."""
+    provider = ai_config.get("provider", "gemini").lower()
+    
+    if provider == "mock":
+        import time
+        time.sleep(1) # Simulate API latency
+        mock_data = {
+            "containers": [{"container_number": "CONT1234567", "seal_number": "SEAL888"}]
+        }
+        return {"success": True, "data": mock_data}
+
     import base64
     images = [base64.b64encode(img).decode('utf-8') for img in image_bytes_list]
     
-    provider = ai_config.get("provider", "gemini").lower()
     credentials = ai_config.get("credentials", {})
     
     # We must treat this as "low text" because it's purely image-based

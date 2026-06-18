@@ -173,44 +173,50 @@ with st.sidebar:
     st.divider()
 
     st.subheader("⚙️ Configuration")
-    provider_choice = st.selectbox("AI Provider", ["Google Gemini", "Azure OpenAI"])
+    demo_mode = st.toggle("🧪 Enable Demo Mode", value=False, help="Use mock data to test the interface without API keys.")
     
     ai_config = {"provider": "gemini", "credentials": {}}
     
-    if provider_choice == "Google Gemini":
-        ai_config["provider"] = "gemini"
-        api_key_input = st.text_input(
-            "Gemini API Key",
-            type="password",
-            value=os.getenv("GEMINI_API_KEY", ""),
-            help="Enter your Google Gemini API key. Get one at https://aistudio.google.com"
-        )
-        ai_config["credentials"]["api_key"] = api_key_input
+    if demo_mode:
+        ai_config["provider"] = "mock"
+        st.info("Demo Mode Active: Uploading any document will return mock parsed data.")
+    else:
+        provider_choice = st.selectbox("AI Provider", ["Google Gemini", "Azure OpenAI"])
         
-    elif provider_choice == "Azure OpenAI":
-        ai_config["provider"] = "azure"
-        azure_endpoint = st.text_input(
-            "Azure Endpoint", 
-            value=os.getenv("AZURE_OPENAI_ENDPOINT", ""),
-            help="e.g. https://your-resource-name.openai.azure.com/"
-        )
-        azure_api_key = st.text_input(
-            "Azure API Key",
-            type="password",
-            value=os.getenv("AZURE_OPENAI_API_KEY", "")
-        )
-        azure_deployment = st.text_input(
-            "Deployment Name",
-            value=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", AZURE_DEFAULT_DEPLOYMENT)
-        )
-        azure_api_version = st.text_input(
-            "API Version",
-            value=os.getenv("AZURE_OPENAI_API_VERSION", AZURE_DEFAULT_API_VERSION)
-        )
-        ai_config["credentials"]["endpoint"] = azure_endpoint
-        ai_config["credentials"]["api_key"] = azure_api_key
-        ai_config["credentials"]["deployment_name"] = azure_deployment
-        ai_config["credentials"]["api_version"] = azure_api_version
+        if provider_choice == "Google Gemini":
+            ai_config["provider"] = "gemini"
+            api_key_input = st.text_input(
+                "Gemini API Key",
+                type="password",
+                value=os.getenv("GEMINI_API_KEY", ""),
+                help="Enter your Google Gemini API key. Get one at https://aistudio.google.com"
+            )
+            ai_config["credentials"]["api_key"] = api_key_input
+            
+        elif provider_choice == "Azure OpenAI":
+            ai_config["provider"] = "azure"
+            azure_endpoint = st.text_input(
+                "Azure Endpoint", 
+                value=os.getenv("AZURE_OPENAI_ENDPOINT", ""),
+                help="e.g. https://your-resource-name.openai.azure.com/"
+            )
+            azure_api_key = st.text_input(
+                "Azure API Key",
+                type="password",
+                value=os.getenv("AZURE_OPENAI_API_KEY", "")
+            )
+            azure_deployment = st.text_input(
+                "Deployment Name",
+                value=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", AZURE_DEFAULT_DEPLOYMENT)
+            )
+            azure_api_version = st.text_input(
+                "API Version",
+                value=os.getenv("AZURE_OPENAI_API_VERSION", AZURE_DEFAULT_API_VERSION)
+            )
+            ai_config["credentials"]["endpoint"] = azure_endpoint
+            ai_config["credentials"]["api_key"] = azure_api_key
+            ai_config["credentials"]["deployment_name"] = azure_deployment
+            ai_config["credentials"]["api_version"] = azure_api_version
     st.divider()
     if st.button("🔄 Clear Results", use_container_width=True):
         if "report" in st.session_state:
@@ -271,13 +277,13 @@ with tab_new_audit:
 
     # ── Processing & Results ──────────────────────────────────────────────────────
     if run_btn:
-        if not ai_config["credentials"].get("api_key"):
-            st.error(f"Please enter an API Key for {provider_choice} in the sidebar.")
-            st.stop()
-            
-        if provider_choice == "Azure OpenAI" and not ai_config["credentials"].get("endpoint"):
-            st.error("Please enter your Azure Endpoint in the sidebar.")
-            st.stop()
+        if ai_config["provider"] != "mock":
+            if ai_config["provider"] == "gemini" and not ai_config["credentials"].get("api_key"):
+                st.error("Please enter a Gemini API Key in the sidebar.")
+                st.stop()
+            elif ai_config["provider"] == "azure" and not ai_config["credentials"].get("endpoint"):
+                st.error("Please enter your Azure Endpoint in the sidebar.")
+                st.stop()
 
         with st.status("Executing Customs Audit...", expanded=True) as status:
             # 1. Extract BL
